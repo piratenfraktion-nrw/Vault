@@ -57,7 +57,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>fully.qualified.MainClass</mainClass>
+                            <mainClass>de.pfnrw.jvault.client.VaultCLI.java</mainClass>
                         </manifest>
                     </archive>
                     <descriptorRefs>
