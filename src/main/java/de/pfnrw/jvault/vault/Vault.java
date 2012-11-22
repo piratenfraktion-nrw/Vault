@@ -1,5 +1,7 @@
 package de.pfnrw.jvault.vault;
 
+import com.sun.xml.internal.fastinfoset.util.CharArray;
+import de.pfnrw.jvault.util.PasswordGenerator;
 import de.pfnrw.jvault.util.Tree;
 import org.apache.commons.codec.binary.Base64;
 import org.json.JSONArray;
@@ -101,24 +103,23 @@ public class Vault implements Serializable {
     }
 
     private void prepareKey() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IOException, InvalidKeySpecException, NoSuchProviderException, IllegalBlockSizeException, BadPaddingException, InvalidParameterSpecException, InvalidAlgorithmParameterException {
-        kpg = KeyPairGenerator.getInstance("RSA");
-        factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
-        aesSpec = new PBEKeySpec("fooooobar".toCharArray(), "baaazzz".getBytes(), 65536, 256);
-        SecretKey tmpAes = factory.generateSecret(aesSpec);
-        kpg.initialize(4096);
-        keyPair = kpg.genKeyPair();
-        cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-        keyFactory = KeyFactory.getInstance("RSA");
-        aesKeySpec = new SecretKeySpec(tmpAes.getEncoded(), "AES");
-        aesCipher = Cipher.getInstance("AES");
-        aesCipher.init(Cipher.ENCRYPT_MODE, aesKeySpec);
-        params = aesCipher.getParameters();
-        //iv = params.getParameterSpec(IvParameterSpec.class).getIV();
-
         File privKeyFile = new File("jvault_priv.key");
         File pubKeyFile = new File("jvault_pub.key");
         File aesKeyFile = new File("jvault_aes.key");
+
+        cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        aesCipher = Cipher.getInstance("AES");
+        keyFactory = KeyFactory.getInstance("RSA");
+
         if(!privKeyFile.exists() && !pubKeyFile.exists() && !aesKeyFile.exists()) {
+            System.out.println("Generating keys, this may take some time...");
+            kpg = KeyPairGenerator.getInstance("RSA");
+            factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
+            aesSpec = new PBEKeySpec(new PasswordGenerator().generate(32).toCharArray(), new SecureRandom().generateSeed(32), 65536, 256);
+            aesKeySpec = new SecretKeySpec(factory.generateSecret(aesSpec).getEncoded(), "AES");
+            kpg.initialize(8192);
+            keyPair = kpg.genKeyPair();
+
             pk = keyPair.getPublic().getEncoded();
             priv = keyPair.getPrivate().getEncoded();
             aes = aesKeySpec.getEncoded();
@@ -145,6 +146,10 @@ public class Vault implements Serializable {
             aes = decrypt(base64Decode(readFile(aesKeyFile.getPath())), privKey, cipher);
             aesKeySpec = new SecretKeySpec(aes, "AES");
         }
+
+        aesCipher.init(Cipher.ENCRYPT_MODE, aesKeySpec);
+
+        System.out.println("Successfully initialized keys.");
     }
 
     public String base64Encode(byte[] data) {
@@ -230,6 +235,8 @@ public class Vault implements Serializable {
         entryTree = new Tree<Entry>(rootEntry);
 
         mapJSON(jsonArray, rootEntry);
+
+        System.out.println("Container successfully opened.");
     }
 
     private void mapJSON(JSONArray jsonArray, Entry parent) throws JSONException, IllegalBlockSizeException, IOException, InvalidKeyException, InvalidKeySpecException, NoSuchAlgorithmException, NoSuchPaddingException, BadPaddingException {

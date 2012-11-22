@@ -6,3 +6,8 @@ target
 *.iws
 *.json
 release
+*.crt
+*.jks
+*.csr
+*.pem
+*.p12

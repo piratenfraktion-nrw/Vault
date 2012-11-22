@@ -21,9 +21,14 @@ public class VaultCLI {
     private String[] commandsList;
     private VaultServiceService vaultService;
     private VaultService vault;
+    private URL serverUrl;
+
+    public VaultCLI(String url) throws MalformedURLException {
+        serverUrl = new URL("https://"+url+"/?wsdl");
+    }
 
     public void init() throws MalformedURLException {
-        vaultService = new VaultServiceService(new URL("http://localhost:9000/VaultService?wsdl"));
+        vaultService = new VaultServiceService(serverUrl);
         vault = vaultService.getVaultServicePort();
         commandsList = new String[] { "help", "search", "add", "exit" };
     }
@@ -46,6 +51,7 @@ public class VaultCLI {
             } else if (line.startsWith("search ")) {
                 System.out.println(vault.search(line.substring(7)));
             } else if ("add".equals(line)) {
+                reader.setUseHistory(false);
                 Entry entry = new Entry();
                 entry.setName(readLine(reader, "Enter Name"));
                 entry.setDescription(readLine(reader, "Enter Description"));
@@ -54,6 +60,7 @@ public class VaultCLI {
                 entry.setPassword(readLine(reader, "Enter Password"));
                 vault.addEntry(entry);
                 System.out.println("Entry saved!");
+                reader.setUseHistory(true);
             } else if ("exit".equals(line)) {
                 System.out.println("Exiting application");
                 return;
@@ -67,15 +74,15 @@ public class VaultCLI {
 
     private void printWelcomeMessage() {
         System.out
-                .println("Welcome to jLine Sample App. For assistance press TAB or type \"help\" then hit ENTER.");
+                .println("Welcome to jvault. For assistance press TAB or type \"help\" then hit ENTER.");
 
     }
 
     private void printHelp() {
-        System.out.println("help		- Show help");
-        System.out.println("search		- Search");
-        System.out.println("add 		- Add Entry");
-        System.out.println("exit        - Exit jvault clii");
+        System.out.println("help\t\t\t- Show help");
+        System.out.println("search\t\t\t- Search");
+        System.out.println("add\t\t\t\t- Add Entry");
+        System.out.println("exit\t\t\t- Exit jvault clii");
 
     }
 
@@ -90,7 +97,13 @@ public class VaultCLI {
     }
 
     public static void main(String[] args) throws IOException, InvalidKeySpecException_Exception, BadPaddingException_Exception, IllegalBlockSizeException_Exception, NoSuchAlgorithmException_Exception, JSONException_Exception, NoSuchPaddingException_Exception, IOException_Exception, InvalidKeyException_Exception {
-        VaultCLI shell = new VaultCLI();
+        VaultCLI shell;
+        if(args.length > 0) {
+            shell = new VaultCLI(args[0]);
+        }
+        else {
+            shell = new VaultCLI("localhost:9000");
+        }
         shell.init();
         shell.run();
     }
