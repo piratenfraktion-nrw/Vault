@@ -1,25 +1,17 @@
 package de.pfnrw.jvault.vault;
 
-import com.sun.xml.internal.fastinfoset.util.CharArray;
-import de.pfnrw.jvault.util.PasswordGenerator;
+import de.pfnrw.jvault.util.CryptUtil;
+import de.pfnrw.jvault.util.FileUtil;
 import de.pfnrw.jvault.util.Tree;
-import org.apache.commons.codec.binary.Base64;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import javax.crypto.*;
-import javax.crypto.spec.PBEKeySpec;
-import javax.crypto.spec.SecretKeySpec;
 import java.io.*;
-import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel;
-import java.nio.charset.Charset;
 import java.security.*;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.InvalidParameterSpecException;
-import java.security.spec.PKCS8EncodedKeySpec;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.UUID;
 
@@ -32,23 +24,8 @@ import java.util.UUID;
 public class Vault implements Serializable {
     Tree<Entry> entryTree;
     Entry rootEntry;
-    Cipher cipher;
-    KeyFactory keyFactory;
-    X509EncodedKeySpec spec;
-    KeyPair keyPair;
-    byte[] pk;
-    KeyPairGenerator kpg;
-    PublicKey pubKey;
-    byte[] priv;
-    byte[] aes;
-    PKCS8EncodedKeySpec specPriv;
-    PrivateKey privKey;
     String vaultFilename;
-    SecretKeySpec aesKeySpec;
-    Cipher aesCipher;
-    AlgorithmParameters params;
-    SecretKeyFactory factory;
-    PBEKeySpec aesSpec;
+    CryptUtil cryptUtil;
 
     public Vault() throws IOException, InvalidKeyException, InvalidKeySpecException, NoSuchAlgorithmException, NoSuchPaddingException, IllegalBlockSizeException, JSONException, BadPaddingException, NoSuchProviderException, InvalidParameterSpecException, InvalidAlgorithmParameterException {
         this("default.jvdb");
@@ -59,47 +36,9 @@ public class Vault implements Serializable {
         rootEntry.setName("JVault");
         entryTree = new Tree<Entry>(rootEntry);
         vaultFilename = filename;
+        cryptUtil = new CryptUtil();
         prepareKey();
         open();
-    }
-
-    public String encrypt(String dataToEncrypt, Key key, Cipher cipher) throws UnsupportedEncodingException, NoSuchAlgorithmException, InvalidKeySpecException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
-        byte[] data = dataToEncrypt.getBytes("UTF-8");
-
-        cipher.init(Cipher.ENCRYPT_MODE, key);
-        byte[] encrypted = cipher.doFinal(data);
-
-        return base64Encode(encrypted);
-    }
-
-    public String encrypt(byte[] data, Key key, Cipher cipher) throws UnsupportedEncodingException, NoSuchAlgorithmException, InvalidKeySpecException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
-        cipher.init(Cipher.ENCRYPT_MODE, key);
-        byte[] encrypted = cipher.doFinal(data);
-
-        return base64Encode(encrypted);
-    }
-
-    public String decrypt(String data, Key key, Cipher cipher) throws IllegalBlockSizeException, BadPaddingException, InvalidKeyException, IOException, InvalidAlgorithmParameterException {
-        setCipherMode(key, cipher);
-
-        byte[] plain = cipher.doFinal(base64Decode(data));
-
-        return new String(plain, "UTF-8");
-    }
-
-    public byte[] decrypt(byte[] data, Key key, Cipher cipher) throws IllegalBlockSizeException, BadPaddingException, InvalidKeyException, IOException, InvalidAlgorithmParameterException {
-        setCipherMode(key, cipher);
-
-        return cipher.doFinal(data);
-    }
-
-    private void setCipherMode(Key key, Cipher cipher) throws InvalidKeyException, InvalidAlgorithmParameterException {
-        if(cipher.getAlgorithm().contains("AES")) {
-            cipher.init(Cipher.DECRYPT_MODE, key);
-        }
-        else {
-            cipher.init(Cipher.DECRYPT_MODE, key);
-        }
     }
 
     private void prepareKey() throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IOException, InvalidKeySpecException, NoSuchProviderException, IllegalBlockSizeException, BadPaddingException, InvalidParameterSpecException, InvalidAlgorithmParameterException {
@@ -107,68 +46,21 @@ public class Vault implements Serializable {
         File pubKeyFile = new File("jvault_pub.key");
         File aesKeyFile = new File("jvault_aes.key");
 
-        cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-        aesCipher = Cipher.getInstance("AES");
-        keyFactory = KeyFactory.getInstance("RSA");
-
         if(!privKeyFile.exists() && !pubKeyFile.exists() && !aesKeyFile.exists()) {
             System.out.println("Generating keys, this may take some time...");
-            kpg = KeyPairGenerator.getInstance("RSA");
-            factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
-            aesSpec = new PBEKeySpec(new PasswordGenerator().generate(32).toCharArray(), new SecureRandom().generateSeed(32), 65536, 256);
-            aesKeySpec = new SecretKeySpec(factory.generateSecret(aesSpec).getEncoded(), "AES");
-            kpg.initialize(8192);
-            keyPair = kpg.genKeyPair();
-
-            pk = keyPair.getPublic().getEncoded();
-            priv = keyPair.getPrivate().getEncoded();
-            aes = aesKeySpec.getEncoded();
-
-            FileOutputStream outPriv = new FileOutputStream(privKeyFile);
-            FileOutputStream outPub = new FileOutputStream(pubKeyFile);
-            FileOutputStream outAes = new FileOutputStream(aesKeyFile);
-
-            outPriv.write(base64Encode(priv).getBytes());
-            outPub.write(base64Encode(pk).getBytes());
-
-            outPriv.close();
-            outPub.close();
-
-            genKeys();
-
-            outAes.write(encrypt(aes, pubKey, cipher).getBytes());
-            outAes.close();
+            cryptUtil.generateRsaKeyPair();
+            cryptUtil.generateAesKey();
+            cryptUtil.saveRsaPrivKey(privKeyFile);
+            cryptUtil.saveRsaPubKey(pubKeyFile);
+            cryptUtil.saveEncryptedAesKey(aesKeyFile);
         }
         else {
-            priv = base64Decode(readFile(privKeyFile.getPath()));
-            pk = base64Decode(readFile(pubKeyFile.getPath()));
-            genKeys();
-            aes = decrypt(base64Decode(readFile(aesKeyFile.getPath())), privKey, cipher);
-            aesKeySpec = new SecretKeySpec(aes, "AES");
+            cryptUtil.loadRSAPrivKey(privKeyFile);
+            cryptUtil.loadRSAPubKey(pubKeyFile);
+            cryptUtil.loadEncryptedKey(aesKeyFile);
         }
 
-        aesCipher.init(Cipher.ENCRYPT_MODE, aesKeySpec);
-
         System.out.println("Successfully initialized keys.");
-    }
-
-    public String base64Encode(byte[] data) {
-        Base64 coder = new Base64();
-
-        return coder.encodeAsString(data);
-    }
-
-    public byte[] base64Decode(String data) {
-        Base64 coder = new Base64();
-        
-        return coder.decode(data);
-    }
-
-    private void genKeys() throws InvalidKeySpecException {
-        spec = new X509EncodedKeySpec(pk);
-        specPriv = new PKCS8EncodedKeySpec(priv);
-        privKey = keyFactory.generatePrivate(specPriv);
-        pubKey = keyFactory.generatePublic(spec);
     }
 
     public String getJSONString() throws JSONException {
@@ -206,29 +98,13 @@ public class Vault implements Serializable {
     }
 
     public void save() throws IOException, JSONException, IllegalBlockSizeException, InvalidKeyException, InvalidKeySpecException, NoSuchAlgorithmException, NoSuchPaddingException, BadPaddingException {
-        FileOutputStream fileOutputStream = new FileOutputStream(vaultFilename);
-        fileOutputStream.write(encrypt(getJSONString(), aesKeySpec, aesCipher).getBytes("UTF-8"));
-        fileOutputStream.flush();
-        fileOutputStream.close();
-    }
-
-    private String readFile(String filename) throws IOException {
-        FileInputStream stream = new FileInputStream(new File(filename));
-        try {
-            FileChannel fc = stream.getChannel();
-            MappedByteBuffer bb = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
-            /* Instead of using default, pass in a decoder. */
-            return Charset.forName("UTF-8").decode(bb).toString();
-        }
-        finally {
-            stream.close();
-        }
+        FileUtil.saveFile(vaultFilename, cryptUtil.encryptAes(getJSONString()));
     }
 
     public void open() throws IOException, JSONException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, InvalidKeySpecException, NoSuchPaddingException, InvalidAlgorithmParameterException {
         if(!new File(vaultFilename).exists()) return;
 
-        String jsonString = decrypt(readFile(vaultFilename), aesKeySpec, aesCipher);
+        String jsonString = cryptUtil.decryptAes(FileUtil.readBase64File(vaultFilename));
 
         JSONArray jsonArray = new JSONArray(jsonString);
 
